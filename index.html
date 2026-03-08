@@ -1,34 +1,396 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Test</title>
+  <title>DKIM / SPF / DMARC Checker</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 40px 20px;
+      font-family: Arial, sans-serif;
+      background: #f3f3f3;
+      color: #111;
+    }
+
+    .container {
+      max-width: 980px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 14px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 24px 0;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    input,
+    button {
+      width: 100%;
+      padding: 14px 16px;
+      font-size: 16px;
+      border-radius: 10px;
+    }
+
+    input {
+      border: 1px solid #cfcfcf;
+      outline: none;
+      background: #fff;
+    }
+
+    input:focus {
+      border-color: #666;
+    }
+
+    button {
+      border: none;
+      background: #000;
+      color: #fff;
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+    }
+
+    button:hover {
+      opacity: 0.92;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .results {
+      margin-top: 22px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .section {
+      background: #fafafa;
+      border: 1px solid #ececec;
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .section h2 {
+      margin: 0 0 12px 0;
+      font-size: 18px;
+    }
+
+    .item {
+      padding: 8px 0;
+      border-bottom: 1px solid #ededed;
+      word-break: break-word;
+    }
+
+    .item:last-child {
+      border-bottom: none;
+    }
+
+    .muted {
+      color: #666;
+    }
+
+    .error {
+      background: #111;
+      color: #00ff66;
+      padding: 16px;
+      border-radius: 10px;
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+
+    .status {
+      margin-top: 10px;
+      color: #555;
+      font-size: 14px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    pre.raw-json {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      background: #0b0b0b;
+      color: #00ff66;
+      padding: 16px;
+      border-radius: 10px;
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 20px 12px;
+      }
+
+      .card {
+        padding: 18px;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+    }
+  </style>
 </head>
 <body>
-  <h1>Python API Test</h1>
-  <input id="domain" value="google.com" />
-  <button onclick="runCheck()">Check</button>
-  <pre id="out">Waiting...</pre>
+  <div class="container">
+    <div class="card">
+      <h1>DKIM / SPF / DMARC Checker</h1>
+
+      <div class="row">
+        <input
+          type="text"
+          id="domain"
+          placeholder="Enter domain, e.g. google.com"
+          value="google.com"
+        />
+        <input
+          type="text"
+          id="ip"
+          placeholder="Optional IP, e.g. 1.2.3.4"
+        />
+        <button id="checkBtn">Check</button>
+      </div>
+
+      <div id="status" class="status">Ready.</div>
+
+      <div id="errorBox" class="error hidden"></div>
+
+      <div id="results" class="results hidden">
+        <div class="section">
+          <h2>Domain</h2>
+          <div id="domainResult" class="item muted">-</div>
+        </div>
+
+        <div class="section">
+          <h2>A Record</h2>
+          <div id="aRecordResult" class="muted">No data</div>
+        </div>
+
+        <div class="section">
+          <h2>MX Records</h2>
+          <div id="mxRecordsResult" class="muted">No data</div>
+        </div>
+
+        <div class="section">
+          <h2>MX → IPs</h2>
+          <div id="mxIpsResult" class="muted">No data</div>
+        </div>
+
+        <div class="section">
+          <h2>SPF</h2>
+          <div id="spfResult" class="muted">No data</div>
+        </div>
+
+        <div class="section">
+          <h2>DMARC</h2>
+          <div id="dmarcResult" class="muted">No data</div>
+        </div>
+
+        <div class="section">
+          <h2>DKIM</h2>
+          <div id="dkimResult" class="muted">No data</div>
+        </div>
+
+        <div class="section">
+          <h2>IP Info</h2>
+          <div id="ipInfoResult" class="muted">No data</div>
+        </div>
+
+        <div class="section">
+          <h2>Raw JSON</h2>
+          <pre id="rawJson" class="raw-json">{}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script>
+    const checkBtn = document.getElementById("checkBtn");
+    const domainInput = document.getElementById("domain");
+    const ipInput = document.getElementById("ip");
+    const statusEl = document.getElementById("status");
+    const errorBox = document.getElementById("errorBox");
+    const results = document.getElementById("results");
+
+    const domainResult = document.getElementById("domainResult");
+    const aRecordResult = document.getElementById("aRecordResult");
+    const mxRecordsResult = document.getElementById("mxRecordsResult");
+    const mxIpsResult = document.getElementById("mxIpsResult");
+    const spfResult = document.getElementById("spfResult");
+    const dmarcResult = document.getElementById("dmarcResult");
+    const dkimResult = document.getElementById("dkimResult");
+    const ipInfoResult = document.getElementById("ipInfoResult");
+    const rawJson = document.getElementById("rawJson");
+
+    checkBtn.addEventListener("click", runCheck);
+    domainInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") runCheck();
+    });
+    ipInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") runCheck();
+    });
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function renderArray(target, arr) {
+      if (!arr || !Array.isArray(arr) || arr.length === 0) {
+        target.innerHTML = '<div class="muted">No data</div>';
+        return;
+      }
+
+      target.innerHTML = arr
+        .map(item => `<div class="item">${escapeHtml(item)}</div>`)
+        .join("");
+    }
+
+    function renderObject(target, obj) {
+      if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+        target.innerHTML = '<div class="muted">No data</div>';
+        return;
+      }
+
+      const keys = Object.keys(obj);
+      if (keys.length === 0) {
+        target.innerHTML = '<div class="muted">No data</div>';
+        return;
+      }
+
+      let html = "";
+      for (const key of keys) {
+        const value = obj[key];
+
+        if (Array.isArray(value)) {
+          html += `<div class="item"><strong>${escapeHtml(key)}</strong><br>${value.map(v => escapeHtml(v)).join("<br>") || "No data"}</div>`;
+        } else if (value && typeof value === "object") {
+          html += `<div class="item"><strong>${escapeHtml(key)}</strong><br><pre style="margin:8px 0 0 0; white-space:pre-wrap;">${escapeHtml(JSON.stringify(value, null, 2))}</pre></div>`;
+        } else {
+          html += `<div class="item"><strong>${escapeHtml(key)}</strong>: ${escapeHtml(value)}</div>`;
+        }
+      }
+
+      target.innerHTML = html;
+    }
+
+    function showError(message) {
+      errorBox.textContent = message;
+      errorBox.classList.remove("hidden");
+    }
+
+    function hideError() {
+      errorBox.textContent = "";
+      errorBox.classList.add("hidden");
+    }
+
+    function clearResults() {
+      domainResult.textContent = "-";
+      aRecordResult.innerHTML = '<div class="muted">No data</div>';
+      mxRecordsResult.innerHTML = '<div class="muted">No data</div>';
+      mxIpsResult.innerHTML = '<div class="muted">No data</div>';
+      spfResult.innerHTML = '<div class="muted">No data</div>';
+      dmarcResult.innerHTML = '<div class="muted">No data</div>';
+      dkimResult.innerHTML = '<div class="muted">No data</div>';
+      ipInfoResult.innerHTML = '<div class="muted">No data</div>';
+      rawJson.textContent = "{}";
+    }
+
     async function runCheck() {
-      const domain = document.getElementById("domain").value.trim();
-      const out = document.getElementById("out");
-      out.textContent = "Loading...";
+      const domain = domainInput.value.trim();
+      const ip = ipInput.value.trim();
+
+      if (!domain) {
+        showError("Please enter a domain.");
+        results.classList.add("hidden");
+        return;
+      }
+
+      hideError();
+      clearResults();
+      results.classList.add("hidden");
+      checkBtn.disabled = true;
+      statusEl.textContent = "Checking...";
 
       try {
-        const res = await fetch(`/api/check?domain=${encodeURIComponent(domain)}`);
-        const text = await res.text();
+        const params = new URLSearchParams();
+        params.set("domain", domain);
+        if (ip) params.set("ip", ip);
 
+        const response = await fetch(`/api/check?${params.toString()}`);
+        const text = await response.text();
+
+        let data;
         try {
-          const data = JSON.parse(text);
-          out.textContent = JSON.stringify(data, null, 2);
-        } catch {
-          out.textContent = "Not JSON:\n\n" + text;
+          data = JSON.parse(text);
+        } catch (err) {
+          showError("Server did not return valid JSON.\n\nResponse was:\n" + text);
+          statusEl.textContent = "Failed.";
+          return;
         }
-      } catch (e) {
-        out.textContent = "Error: " + e.message;
+
+        if (!response.ok) {
+          showError(JSON.stringify(data, null, 2));
+          statusEl.textContent = "Failed.";
+          return;
+        }
+
+        domainResult.textContent = data.domain || domain;
+        renderArray(aRecordResult, data.a_record);
+        renderArray(mxRecordsResult, data.mx_records);
+        renderObject(mxIpsResult, data.mx_ips);
+        renderArray(spfResult, data.spf);
+        renderArray(dmarcResult, data.dmarc);
+
+        if (data.dkim && data.dkim.message) {
+          dkimResult.innerHTML = `<div class="item">${escapeHtml(data.dkim.message)}</div>`;
+        } else {
+          renderObject(dkimResult, data.dkim);
+        }
+
+        if (data.ip_info) {
+          renderObject(ipInfoResult, data.ip_info);
+        } else if (data.ip_info_error) {
+          ipInfoResult.innerHTML = `<div class="item">${escapeHtml(data.ip_info_error)}</div>`;
+        } else {
+          ipInfoResult.innerHTML = '<div class="muted">No data</div>';
+        }
+
+        rawJson.textContent = JSON.stringify(data, null, 2);
+
+        results.classList.remove("hidden");
+        statusEl.textContent = "Done.";
+      } catch (error) {
+        showError("Request failed: " + error.message);
+        statusEl.textContent = "Failed.";
+      } finally {
+        checkBtn.disabled = false;
       }
     }
   </script>
