@@ -1,6 +1,18 @@
 {
+  "version": 2,
+  "functions": {
+    "api/check.py": {
+      "runtime": "@vercel/python"
+    }
+  },
   "routes": [
-    { "src": "/", "dest": "/index.html" },
-    { "src": "/api/check", "dest": "/api/check.py" }
+    {
+      "src": "/api/check",
+      "dest": "/api/check.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
   ]
 }
