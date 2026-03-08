@@ -52,7 +52,7 @@
       border-radius: 8px;
       overflow-x: auto;
       white-space: pre-wrap;
-      min-height: 120px;
+      min-height: 140px;
     }
   </style>
 </head>
@@ -88,7 +88,6 @@
         if (ip) params.set("ip", ip);
 
         const res = await fetch(`/api/check?${params.toString()}`);
-
         const text = await res.text();
 
         let data;
@@ -96,14 +95,7 @@
           data = JSON.parse(text);
         } catch (e) {
           output.textContent =
-            "Server did not return valid JSON.\n\n" +
-            "Response was:\n" +
-            text;
-          return;
-        }
-
-        if (!res.ok) {
-          output.textContent = "Error:\n" + JSON.stringify(data, null, 2);
+            "Server did not return valid JSON.\n\nResponse was:\n" + text;
           return;
         }
 
