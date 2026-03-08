@@ -1,25 +1,37 @@
 import json
 import re
 from urllib.request import urlopen, Request
-from urllib.parse import parse_qs
+from urllib.parse import urlparse, parse_qs
 
 SELECTORS = [
     "default", "selector1", "selector2", "google", "microsoft",
     "dkim", "mail", "smtp", "k1", "k2", "s1", "s2"
 ]
 
+def json_response(status_code, data):
+    return {
+        "statusCode": status_code,
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "body": json.dumps(data, indent=2)
+    }
+
 def dns_google(name, rtype):
     url = f"https://dns.google/resolve?name={name}&type={rtype}"
     req = Request(url, headers={"User-Agent": "vercel-dns-check"})
-    with urlopen(req, timeout=10) as r:
-        data = json.loads(r.read().decode())
-    answers = data.get("Answer", [])
-    return [a.get("data", "") for a in answers]
+    with urlopen(req, timeout=10) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    answers = payload.get("Answer", [])
+    return [item.get("data", "") for item in answers if item.get("data")]
 
 def clean_txt(records):
     cleaned = []
-    for r in records:
-        cleaned.append(r.replace('" "', "").replace('"', ""))
+    for record in records:
+        value = record.replace('" "', "")
+        value = value.replace('"', "")
+        cleaned.append(value)
     return cleaned
 
 def ip_info(ip):
@@ -27,71 +39,84 @@ def ip_info(ip):
         f"https://ipinfo.io/{ip}/json",
         headers={"User-Agent": "vercel-dns-check"}
     )
-    with urlopen(req, timeout=10) as r:
-        return json.loads(r.read().decode())
+    with urlopen(req, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+def get_query_params(request):
+    query_string = ""
+
+    if hasattr(request, "query_string") and request.query_string:
+        raw = request.query_string
+        if isinstance(raw, bytes):
+            query_string = raw.decode("utf-8", errors="ignore")
+        else:
+            query_string = str(raw)
+    elif hasattr(request, "url") and request.url:
+        parsed = urlparse(str(request.url))
+        query_string = parsed.query
+
+    return parse_qs(query_string)
 
 def handler(request):
-    query = parse_qs(request.query_string.decode())
-    domain = query.get("domain", [""])[0].strip()
-    ip = query.get("ip", [""])[0].strip()
+    try:
+        query = get_query_params(request)
+        domain = query.get("domain", [""])[0].strip()
+        ip = query.get("ip", [""])[0].strip()
 
-    if not domain:
-        return {
-            "statusCode": 400,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": "Missing domain"})
+        if not domain:
+            return json_response(400, {"error": "Missing domain"})
+
+        result = {
+            "domain": domain
         }
 
-    result = {"domain": domain}
-
-    try:
         result["a_record"] = dns_google(domain, "A")
 
         mx_raw = dns_google(domain, "MX")
         result["mx_records"] = mx_raw
 
         mx_hosts = []
-        for m in mx_raw:
-            parts = m.split()
+        for item in mx_raw:
+            parts = item.split()
             if parts:
                 mx_hosts.append(parts[-1].rstrip("."))
 
         mx_ips = {}
         for host in sorted(set(mx_hosts)):
-            mx_ips[host] = dns_google(host, "A")
+            mx_ips[host] = {
+                "A": dns_google(host, "A"),
+                "AAAA": dns_google(host, "AAAA")
+            }
         result["mx_ips"] = mx_ips
 
         txt_records = clean_txt(dns_google(domain, "TXT"))
-        result["spf"] = [t for t in txt_records if "v=spf1" in t.lower()]
+        result["spf"] = [txt for txt in txt_records if "v=spf1" in txt.lower()]
 
-        dmarc = clean_txt(dns_google(f"_dmarc.{domain}", "TXT"))
-        result["dmarc"] = dmarc
+        dmarc_records = clean_txt(dns_google(f"_dmarc.{domain}", "TXT"))
+        result["dmarc"] = dmarc_records
 
         dkim_found = {}
-        for sel in SELECTORS:
-            name = f"{sel}._domainkey.{domain}"
+        for selector in SELECTORS:
+            name = f"{selector}._domainkey.{domain}"
             records = clean_txt(dns_google(name, "TXT"))
             joined = " ".join(records)
-            if re.search(r"v\s*=\s*DKIM1", joined, re.I):
+            if re.search(r"v\s*=\s*DKIM1", joined, re.IGNORECASE):
                 dkim_found[name] = records
 
-        result["dkim"] = dkim_found or {"message": "No DKIM found with common selectors"}
+        if dkim_found:
+            result["dkim"] = dkim_found
+        else:
+            result["dkim"] = {
+                "message": "No DKIM found with common selectors. Check email header for real selector (s=)."
+            }
 
         if ip:
             try:
                 result["ip_info"] = ip_info(ip)
-            except Exception as e:
-                result["ip_info_error"] = str(e)
+            except Exception as exc:
+                result["ip_info_error"] = str(exc)
 
-        return {
-            "statusCode": 200,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps(result, indent=2)
-        }
+        return json_response(200, result)
 
-    except Exception as e:
-        return {
-            "statusCode": 500,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": str(e)})
-        }
+    except Exception as exc:
+        return json_response(500, {"error": str(exc)})
