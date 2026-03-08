@@ -48,11 +48,14 @@ class handler(BaseHTTPRequestHandler):
 
             result = {"domain": domain}
 
+            # A record
             result["a_record"] = dns_google(domain, "A")
 
+            # MX records
             mx_raw = dns_google(domain, "MX")
             result["mx_records"] = mx_raw
 
+            # MX hosts -> A / AAAA
             mx_hosts = []
             for item in mx_raw:
                 parts = item.split()
@@ -67,12 +70,15 @@ class handler(BaseHTTPRequestHandler):
                 }
             result["mx_ips"] = mx_ips
 
+            # SPF
             txt_records = clean_txt(dns_google(domain, "TXT"))
             result["spf"] = [txt for txt in txt_records if "v=spf1" in txt.lower()]
 
+            # DMARC
             dmarc_records = clean_txt(dns_google(f"_dmarc.{domain}", "TXT"))
             result["dmarc"] = dmarc_records
 
+            # DKIM
             dkim_found = {}
             for selector in SELECTORS:
                 name = f"{selector}._domainkey.{domain}"
@@ -88,6 +94,7 @@ class handler(BaseHTTPRequestHandler):
                     "message": "No DKIM found with common selectors. Check email header for real selector (s=)."
                 }
 
+            # Optional IP info
             if ip:
                 try:
                     result["ip_info"] = ip_info(ip)
