@@ -1,18 +1,3 @@
 {
-  "version": 2,
-  "functions": {
-    "api/check.py": {
-      "runtime": "@vercel/python"
-    }
-  },
-  "routes": [
-    {
-      "src": "/api/check",
-      "dest": "/api/check.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }
