@@ -10,54 +10,66 @@
       max-width: 900px;
       margin: 40px auto;
       padding: 20px;
-      background: #f7f7f7;
+      background: #f4f4f4;
     }
+
+    .box {
+      background: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    }
+
     h1 {
+      margin-top: 0;
       margin-bottom: 20px;
     }
-    .box {
-      background: white;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-    }
+
     input, button {
-      padding: 12px;
-      font-size: 16px;
-      margin: 8px 0;
       width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      font-size: 16px;
       box-sizing: border-box;
     }
+
     button {
-      background: black;
-      color: white;
+      background: #000;
+      color: #fff;
       border: none;
+      border-radius: 8px;
       cursor: pointer;
-      border-radius: 6px;
     }
+
     button:hover {
-      opacity: 0.9;
+      opacity: 0.92;
     }
+
     pre {
-      background: #111;
-      color: #0f0;
+      background: #0b0b0b;
+      color: #00ff66;
       padding: 16px;
       border-radius: 8px;
       overflow-x: auto;
       white-space: pre-wrap;
+      min-height: 120px;
     }
   </style>
 </head>
 <body>
   <div class="box">
     <h1>DKIM / SPF / DMARC Checker</h1>
-    <input type="text" id="domain" placeholder="Enter domain, e.g. example.com" />
+
+    <input type="text" id="domain" placeholder="Enter domain, e.g. google.com" />
     <input type="text" id="ip" placeholder="Optional IP, e.g. 1.2.3.4" />
-    <button onclick="checkDomain()">Check</button>
+    <button id="checkBtn">Check</button>
+
     <pre id="output">Results will appear here...</pre>
   </div>
 
   <script>
+    document.getElementById("checkBtn").addEventListener("click", checkDomain);
+
     async function checkDomain() {
       const domain = document.getElementById("domain").value.trim();
       const ip = document.getElementById("ip").value.trim();
@@ -71,15 +83,33 @@
       output.textContent = "Checking...";
 
       try {
-        const params = new URLSearchParams({ domain });
-        if (ip) params.append("ip", ip);
+        const params = new URLSearchParams();
+        params.set("domain", domain);
+        if (ip) params.set("ip", ip);
 
         const res = await fetch(`/api/check?${params.toString()}`);
-        const data = await res.json();
+
+        const text = await res.text();
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          output.textContent =
+            "Server did not return valid JSON.\n\n" +
+            "Response was:\n" +
+            text;
+          return;
+        }
+
+        if (!res.ok) {
+          output.textContent = "Error:\n" + JSON.stringify(data, null, 2);
+          return;
+        }
 
         output.textContent = JSON.stringify(data, null, 2);
       } catch (err) {
-        output.textContent = "Error: " + err.message;
+        output.textContent = "Request failed: " + err.message;
       }
     }
   </script>
